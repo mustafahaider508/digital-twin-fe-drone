@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 
 /**
  * Tenant picker styled for the drone dashboard glass panels (TopBar / KPI / sidebar theme).
@@ -9,39 +9,94 @@ import React from "react";
 export default function TenantSelectControl({ tenantId, tenantOptions, onTenantChange }) {
   if (typeof onTenantChange !== "function") return null;
 
+  const options = useMemo(() => {
+    const list = Array.isArray(tenantOptions) ? tenantOptions : [];
+    const merged = [...new Set([...(list || []), tenantId].filter(Boolean).map(String))];
+    merged.sort((a, b) => a.localeCompare(b));
+    return merged;
+  }, [tenantOptions, tenantId]);
+
+
+  const TenantsArray = ["Drone1", "Drone2", "Drone3"];
+
+  const [custom, setCustom] = useState("");
+  const canUseCustom = /^[\\w.-]{1,64}$/.test(custom.trim());
+
   return (
-    <div style={S.shell} className="dt-tenant-shell">
-      <div style={S.leftRail}>
-        <span
-          style={S.activeDot}
-          title="Active tenant scope"
-          aria-hidden
+    <div style={S.wrap}>
+      <div style={S.shell} className="dt-tenant-shell">
+        <div style={S.leftRail}>
+          <span style={S.activeDot} title="Active tenant scope" aria-hidden />
+          <span style={S.activeLabel}>ACTIVE</span>
+        </div>
+        <select
+          className="dt-tenant-select"
+          value={tenantId}
+          onChange={(e) => onTenantChange(e.target.value)}
+          style={S.select}
+          aria-label="Select tenant"
+        >
+          {TenantsArray.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <div style={S.chevron} aria-hidden>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#64748b"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </div>
+      </div>
+
+      {/* <div style={S.customRow}>
+        <input
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          placeholder="Add tenant…"
+          style={S.customInput}
+          aria-label="Add tenant id"
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            const next = custom.trim();
+            if (!/^[\\w.-]{1,64}$/.test(next)) return;
+            onTenantChange(next);
+            setCustom("");
+          }}
         />
-        <span style={S.activeLabel}>ACTIVE</span>
-      </div>
-      <select
-        className="dt-tenant-select"
-        value={tenantId}
-        onChange={(e) => onTenantChange(e.target.value)}
-        style={S.select}
-        aria-label="Select tenant"
-      >
-        {tenantOptions.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
-      <div style={S.chevron} aria-hidden>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </div>
+        <button
+          type="button"
+          style={{
+            ...S.customBtn,
+            opacity: canUseCustom ? 1 : 0.5,
+            cursor: canUseCustom ? "pointer" : "not-allowed",
+          }}
+          disabled={!canUseCustom}
+          onClick={() => {
+            const next = custom.trim();
+            if (!/^[\\w.-]{1,64}$/.test(next)) return;
+            onTenantChange(next);
+            setCustom("");
+          }}
+        >
+          Use
+        </button>
+      </div> */}
     </div>
   );
 }
 
 const S = {
+  wrap: { display: "flex", flexDirection: "column", gap: 6 },
   shell: {
     display: "flex",
     alignItems: "center",
@@ -104,5 +159,31 @@ const S = {
     placeItems: "center",
     opacity: 0.85,
     pointerEvents: "none",
+  },
+
+  customRow: { display: "flex", alignItems: "center", gap: 6 },
+  customInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 34,
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
+    color: "#e2e8f0",
+    padding: "0 10px",
+    fontSize: 11,
+    fontWeight: 600,
+    outline: "none",
+  },
+  customBtn: {
+    height: 34,
+    padding: "0 10px",
+    borderRadius: 10,
+    border: "1px solid rgba(56,189,248,0.35)",
+    background: "rgba(56,189,248,0.12)",
+    color: "#38bdf8",
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: "0.02em",
   },
 };

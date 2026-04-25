@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
+    "screenshots:uc8": "playwright test tests/uc8-report-screenshots.spec.js",
     "postinstall": "cpx \"node_modules/cesium/Build/Cesium/**\" public/cesium",
     "build:uibuilder": "bash build-uibuilder.sh",
     "deploy:uibuilder": "npm run build:uibuilder && cp -r out/* ~/.node-red/uibuilder/drone-map/src/",

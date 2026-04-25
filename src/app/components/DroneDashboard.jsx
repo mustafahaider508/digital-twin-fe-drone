@@ -9,6 +9,7 @@ import LeftSidebar from "./LeftSidebar";
 import RightPanel from "./RightPanel";
 import KpiStrip from "./KpiStrip";
 import BottomSection from "./BottomSection";
+import CameraFeed from "./CameraFeed";
 import { PRESETS, tenantHeaders, useTenant } from "@/app/providers/TenantProvider";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5555";
@@ -60,11 +61,22 @@ export default function DroneDashboard() {
     return `${base}${sep}tenantId=${encodeURIComponent(tenantId)}`;
   }, [tenantId]);
 
+  /** Raw JPEG frames only — must not be the merged JSON telemetry `/ws`. */
+  const cameraWsUrl = useMemo(() => {
+    if (process.env.NEXT_PUBLIC_CAMERA_WS_URL) {
+      return process.env.NEXT_PUBLIC_CAMERA_WS_URL;
+    }
+    const wsOrigin = API_BASE.replace(/^http/, "ws").replace(/\/?$/, "");
+    const droneId = process.env.NEXT_PUBLIC_CAMERA_DRONE_ID || "drone-01";
+    return `${wsOrigin}/stream?role=viewer&droneId=${encodeURIComponent(droneId)}`;
+  }, []);
+
   const [followDrone, setFollowDrone] = useState(true);
   const [autoCenter, setAutoCenter] = useState(true);
   const [showTrail, setShowTrail] = useState(true);
   const [cameraMode, setCameraMode] = useState("Map+FPV");
-  const [conn, setConn] = useState({ mqtt: true, cam: true });
+  const [camConnected, setCamConnected] = useState(false);
+  const [tenantOptions, setTenantOptions] = useState([]);
 
   const {
     telemetry,
@@ -76,6 +88,33 @@ export default function DroneDashboard() {
   } = useDroneTelemetry(telemetryWsUrl);
 
   const [restEvents, setRestEvents] = useState([]);
+
+  // Optional: discover tenants dynamically from backend; fallback to env presets.
+  useEffect(() => {
+    let cancelled = false;
+    const parseTenants = (data) => {
+      if (!data) return [];
+      if (Array.isArray(data)) return data.map((t) => (typeof t === "string" ? t : t?.id)).filter(Boolean);
+      if (Array.isArray(data.items)) return data.items.map((t) => (typeof t === "string" ? t : t?.id)).filter(Boolean);
+      if (Array.isArray(data.tenants)) return data.tenants.map((t) => (typeof t === "string" ? t : t?.id)).filter(Boolean);
+      return [];
+    };
+
+    fetch(`${API_BASE}/tenants`, { cache: "no-store", headers: tenantHeaders(tenantId) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const list = parseTenants(data);
+        setTenantOptions(list);
+      })
+      .catch(() => {
+        if (!cancelled) setTenantOptions([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId]);
 
   const mergedBackendPayload = useMemo(() => {
     if (!droneState || typeof droneState !== "object") return null;
@@ -125,6 +164,20 @@ export default function DroneDashboard() {
       .slice(0, 50);
   }, [restEvents, wsAnomalyEvents]);
 
+  const activeDroneId = useMemo(() => {
+    const raw = mergedBackendPayload;
+    const id = raw?.droneId ?? raw?.deviceId;
+    return id ? String(id) : null;
+  }, [mergedBackendPayload]);
+
+  const conn = useMemo(
+    () => ({
+      mqtt: Boolean(connected),
+      cam: Boolean(camConnected),
+    }),
+    [connected, camConnected]
+  );
+
   const HISTORY_LEN = 60;
   const [telemetryHistory, setTelemetryHistory] = useState(() => {
     const base = { battery: 82, altitude: 80, speed: 64 };
@@ -171,9 +224,10 @@ export default function DroneDashboard() {
         {/* LEFT */}
         <LeftSidebar
           tenantId={tenantId}
-          tenantPresets={PRESETS}
+          tenantPresets={tenantOptions.length ? tenantOptions : PRESETS}
           onTenantChange={setTenantId}
           conn={conn}
+          activeDroneId={activeDroneId}
           followDrone={followDrone}
           setFollowDrone={setFollowDrone}
           autoCenter={autoCenter}
@@ -188,14 +242,31 @@ export default function DroneDashboard() {
         <div style={styles.centerCol}>
           <div style={styles.mapCard}>
             <div style={styles.mapHeader}>
-              <div style={styles.mapTitle}>MAP + 3D DRONE</div>
+              <div style={styles.mapTitle}>{cameraMode === "FPV" ? "FPV" : "MAP + 3D DRONE"}</div>
               <div style={styles.mapSub}>
-                MapLibre centered on lat/lon • GLB overlay • yaw/pitch/roll rotation
+                {cameraMode === "FPV"
+                  ? "Live camera stream • low-latency WebSocket JPEG frames"
+                  : "MapLibre centered on lat/lon • GLB overlay • yaw/pitch/roll rotation"}
               </div>
             </div>
 
             <div style={styles.mapBody}>
-              <DroneMap wsUrl={telemetryWsUrl} />
+              <div style={styles.droneMapRoot}>
+                {cameraMode === "FPV" ? (
+                  <CameraFeed
+                    enabled={true}
+                    wsUrl={cameraWsUrl}
+                    onConnectionChange={setCamConnected}
+                  />
+                ) : (
+                  <DroneMap
+                    wsUrl={telemetryWsUrl}
+                    followDrone={followDrone}
+                    autoCenter={autoCenter}
+                    showTrail={showTrail}
+                  />
+                )}
+              </div>
             </div>
 
             <div style={styles.kpiStripWrap}>
@@ -253,10 +324,11 @@ export default function DroneDashboard() {
       <div style={styles.bottomWrap}>
         <BottomSection
           cameraMode={cameraMode}
-          wsUrl={telemetryWsUrl}
+          wsUrl={cameraWsUrl}
           telemetry={telemetry}
           telemetryHistory={telemetryHistory}
           events={eventLogRows}
+          onCameraConnectionChange={setCamConnected}
         />
       </div>
     </div>
@@ -267,15 +339,13 @@ const styles = {
   topBarWrap: { flex: "0 0 auto" },
 
   page: {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    position: "relative",
     width: "100%",
-    height: "100%",
-    overflow: "hidden",
+    minHeight: "100dvh",
+    overflowX: "hidden",
+    overflowY: "visible",
     background: "#060a13",
+        // background: "white",
     color: "#e2e8f0",
     padding: 6,
     display: "flex",
@@ -286,8 +356,9 @@ const styles = {
   },
 
   mainGrid: {
-    flex: "1 1 0",
-    minHeight: 400,
+    // Keep map area height stable; bottom section adds scroll.
+    flex: "0 0 auto",
+    height: "clamp(520px, 62vh, 760px)",
     display: "grid",
     gridTemplateColumns: "230px 1fr 270px",
     gridTemplateRows: "1fr",
@@ -344,7 +415,17 @@ const styles = {
 
   mapBody: {
     flex: "1 1 0",
-    minHeight: 320,
+    minHeight: 0,
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  droneMapRoot: {
+    flex: "1 1 auto",
+    minHeight: 0,
+    height: "100%",
+    width: "100%",
     position: "relative",
   },
 
@@ -401,8 +482,10 @@ const styles = {
 
   bottomWrap: {
     flex: "0 0 auto",
-    height: 200,
-    minHeight: 0,
-    overflow: "hidden",
+    height: "auto",
+    // Give BottomSection more room while staying responsive
+    minHeight: "clamp(320px, 40vh, 560px)",
+    overflowX: "hidden",
+    overflowY: "visible",
   },
 };

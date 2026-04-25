@@ -2,21 +2,34 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
-export default function CameraFeed({ wsUrl, enabled = true }) {
+export default function CameraFeed({ wsUrl, enabled = true, onConnectionChange }) {
   const [src, setSrc] = useState(null);
+  const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);
   const lastUrlRef = useRef(null);
 
   useEffect(() => {
-    if (!enabled || !wsUrl) return;
+    if (!enabled || !wsUrl) {
+      setConnected(false);
+      if (typeof onConnectionChange === "function") onConnectionChange(false);
+      return;
+    }
 
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
-    ws.onopen = () => console.log("[CameraFeed] WS connected");
+    ws.onopen = () => {
+      setConnected(true);
+      if (typeof onConnectionChange === "function") onConnectionChange(true);
+      console.log("[CameraFeed] WS connected");
+    };
     ws.onerror = (e) => console.warn("[CameraFeed] WS error", e);
-    ws.onclose = () => console.log("[CameraFeed] WS closed");
+    ws.onclose = () => {
+      setConnected(false);
+      if (typeof onConnectionChange === "function") onConnectionChange(false);
+      console.log("[CameraFeed] WS closed");
+    };
 
     ws.onmessage = (evt) => {
       try {
@@ -36,6 +49,8 @@ export default function CameraFeed({ wsUrl, enabled = true }) {
       try { ws.close(); } catch {}
       if (lastUrlRef.current) URL.revokeObjectURL(lastUrlRef.current);
       lastUrlRef.current = null;
+      setConnected(false);
+      if (typeof onConnectionChange === "function") onConnectionChange(false);
     };
   }, [wsUrl, enabled]);
 
@@ -50,7 +65,9 @@ export default function CameraFeed({ wsUrl, enabled = true }) {
             <circle cx="12" cy="13" r="4"/>
           </svg>
           <div style={S.placeholderText}>Awaiting video stream</div>
-          <div style={S.placeholderSub}>{wsUrl}</div>
+          <div style={S.placeholderSub}>
+            {connected ? "CONNECTED" : "DISCONNECTED"} · {wsUrl}
+          </div>
         </div>
       )}
     </div>

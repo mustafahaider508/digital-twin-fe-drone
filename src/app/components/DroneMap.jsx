@@ -852,6 +852,9 @@ import * as THREE from "three";
 import { GLTFLoader } from "three-stdlib";
 
 const BASE_PATH = process.env.__NEXT_ROUTER_BASEPATH || "";
+const ENABLE_T3_MOCK =
+  process.env.NEXT_PUBLIC_MOCK_T3 === "1" ||
+  process.env.NEXT_PUBLIC_MOCK_T3 === "true";
 
 // Camera defaults
 const DEFAULT_ZOOM = 18;
@@ -979,7 +982,9 @@ function extractState(maybe) {
 
 export default function DroneMap({
   wsUrl: wsUrlProp,
+  followDrone = true,
   autoCenter = true,
+  showTrail = true,
   posSmooth = 0.25,
   angSmooth = 0.8,
   camSmooth = 1,
@@ -989,6 +994,8 @@ export default function DroneMap({
   const mapRef = useRef(null);
   const customLayerRef = useRef(null);
   const mapLoadedRef = useRef(false);
+  const trailCoordsRef = useRef([]);
+  const trailLastPushAtRef = useRef(0);
 
   // TARGET (from WS)
   const targetRef = useRef({
@@ -1029,6 +1036,15 @@ export default function DroneMap({
   const vizArrivalRef = useRef([]);
   const [vizHz, setVizHz] = useState(0);
   const [packetAgeMs, setPacketAgeMs] = useState(null);
+
+  // Sidebar "Follow drone" toggle drives the map mode (follow = locked camera, map = free pan).
+  useEffect(() => {
+    setMode((prev) => {
+      if (followDrone && prev !== "follow") return "follow";
+      if (!followDrone && prev === "follow") return "map";
+      return prev;
+    });
+  }, [followDrone]);
 
   const pruneVizArrivals = useCallback(() => {
     const now = Date.now();
@@ -1112,6 +1128,52 @@ export default function DroneMap({
   // Keep a ref to latest applyState so WS effect doesn't depend on it (avoids reconnect on re-render)
   const applyStateRef = useRef(applyState);
   applyStateRef.current = applyState;
+
+  // Optional: mock drone_state stream (lets UC8-T3 visualization work without backend)
+  useEffect(() => {
+    if (!ENABLE_T3_MOCK) return;
+    if (wsStatus === "CONNECTED") return;
+
+    setWsStatus("MOCK");
+
+    const start = {
+      lon: smoothRef.current.lon,
+      lat: smoothRef.current.lat,
+      alt: smoothRef.current.alt || 30,
+    };
+
+    const t0 = Date.now();
+    const radius = 0.00055; // ~60m-ish at mid latitudes
+    const periodMs = 9000;
+
+    const id = setInterval(() => {
+      // If real WS connects, stop the mock immediately.
+      if (wsStatus === "CONNECTED") return;
+
+      const t = Date.now() - t0;
+      const a = ((t % periodMs) / periodMs) * Math.PI * 2;
+
+      const lon = start.lon + Math.cos(a) * radius;
+      const lat = start.lat + Math.sin(a) * radius;
+      const yaw = ((a * 180) / Math.PI + 90) % 360;
+
+      applyStateRef.current(
+        {
+          droneId: "mock-drone",
+          lon,
+          lat,
+          alt: start.alt + 6 + Math.sin(a * 2) * 2,
+          yaw,
+          pitch: Math.sin(a) * 7,
+          roll: Math.cos(a) * 6,
+          ts: Date.now(),
+        },
+        "drone_state"
+      );
+    }, 120);
+
+    return () => clearInterval(id);
+  }, [wsStatus]);
 
   // changed: browser export helpers for T3 evidence
   useEffect(() => {
@@ -1640,6 +1702,37 @@ export default function DroneMap({
         map.addLayer(customLayer);
       }
 
+      // Trail overlay (LineString) — data updated from the animation tick.
+      if (!map.getSource("dt-trail")) {
+        map.addSource("dt-trail", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                properties: {},
+                geometry: { type: "LineString", coordinates: [] },
+              },
+            ],
+          },
+        });
+      }
+
+      if (!map.getLayer("dt-trail-line")) {
+        map.addLayer({
+          id: "dt-trail-line",
+          type: "line",
+          source: "dt-trail",
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": "#38bdf8",
+            "line-width": 3,
+            "line-opacity": showTrail ? 0.75 : 0,
+          },
+        });
+      }
+
       map.triggerRepaint();
     };
 
@@ -1664,7 +1757,17 @@ export default function DroneMap({
         map.remove();
       } catch {}
     };
-  }, [modelUrl, posSmooth, angSmooth]);
+  }, [modelUrl, posSmooth, angSmooth, showTrail]);
+
+  // Keep trail visibility in sync with sidebar toggle.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.getLayer("dt-trail-line")) return;
+    try {
+      map.setPaintProperty("dt-trail-line", "line-opacity", showTrail ? 0.75 : 0);
+    } catch {}
+  }, [showTrail]);
 
   // Single animation tick: update smoothRef then set map + trigger repaint so drone and map use same position (same speed)
   useEffect(() => {
@@ -1710,6 +1813,58 @@ export default function DroneMap({
       smooth.yaw = lerpAngleDeg(smooth.yaw, travelYawRef.current, kAng);
       smooth.pitch = lerpAngleDeg(smooth.pitch, target.pitch, kAng);
       smooth.roll = lerpAngleDeg(smooth.roll, target.roll, kAng);
+
+      // Trail update: push coords at a modest rate + when moved.
+      const mapForTrail = mapRef.current;
+      if (mapForTrail) {
+        const nowMs = Date.now();
+        const lastAt = trailLastPushAtRef.current || 0;
+        const coords = trailCoordsRef.current || [];
+        const last = coords[coords.length - 1];
+        const movedEnough =
+          !last ||
+          Math.hypot(smooth.lon - last[0], smooth.lat - last[1]) > 0.000005; // ~0.5m-ish (rough)
+
+        if (showTrail && movedEnough && nowMs - lastAt >= 250) {
+          trailLastPushAtRef.current = nowMs;
+          coords.push([smooth.lon, smooth.lat]);
+          const MAX_POINTS = 300;
+          if (coords.length > MAX_POINTS) coords.splice(0, coords.length - MAX_POINTS);
+          trailCoordsRef.current = coords;
+
+          const src = mapForTrail.getSource("dt-trail");
+          if (src && typeof src.setData === "function") {
+            src.setData({
+              type: "FeatureCollection",
+              features: [
+                {
+                  type: "Feature",
+                  properties: {},
+                  geometry: { type: "LineString", coordinates: coords },
+                },
+              ],
+            });
+          }
+        }
+
+        if (!showTrail && coords.length) {
+          trailCoordsRef.current = [];
+          trailLastPushAtRef.current = 0;
+          const src = mapForTrail.getSource("dt-trail");
+          if (src && typeof src.setData === "function") {
+            src.setData({
+              type: "FeatureCollection",
+              features: [
+                {
+                  type: "Feature",
+                  properties: {},
+                  geometry: { type: "LineString", coordinates: [] },
+                },
+              ],
+            });
+          }
+        }
+      }
 
       // changed: UC8-T3 first visible render detection
       const pending = pendingRenderRef.current;
@@ -1795,7 +1950,7 @@ export default function DroneMap({
     return () => {
       cancelAnimationFrame(rafId);
     };
-  }, [autoCenter, posSmooth, angSmooth, camSmooth]);
+  }, [autoCenter, posSmooth, angSmooth, camSmooth, showTrail]);
 
   // Mode handling
   useEffect(() => {
@@ -1822,7 +1977,7 @@ export default function DroneMap({
   }, [mode]);
 
   const badge = useMemo(() => {
-    const isOn = wsStatus === "CONNECTED";
+    const isOn = wsStatus === "CONNECTED" || wsStatus === "MOCK";
 
     return {
       text: wsStatus,
@@ -1841,7 +1996,7 @@ export default function DroneMap({
         position: "relative",
         height: "100%",
         width: "100%",
-        minHeight: 400,
+        minHeight: 300,
         borderRadius: 16,
         overflow: "hidden",
         border: "1px solid rgba(255,255,255,0.12)",
