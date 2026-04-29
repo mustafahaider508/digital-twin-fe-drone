@@ -1,11 +1,18 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
-export default function CameraFeed({ wsUrl, enabled = true }) {
+export default function CameraFeed({ wsUrl, enabled = true, onConnectionChange }) {
   const [src, setSrc] = useState(null);
+  const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef(null);
   const lastUrlRef = useRef(null);
+  const onConnRef = useRef(onConnectionChange);
+
+  useEffect(() => {
+    onConnRef.current = onConnectionChange;
+  }, [onConnectionChange]);
 
   useEffect(() => {
     if (!enabled || !wsUrl) return;
@@ -14,9 +21,17 @@ export default function CameraFeed({ wsUrl, enabled = true }) {
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
-    ws.onopen = () => console.log("[CameraFeed] WS connected");
+    ws.onopen = () => {
+      setWsConnected(true);
+      if (typeof onConnRef.current === "function") onConnRef.current(true);
+      console.log("[CameraFeed] WS connected");
+    };
     ws.onerror = (e) => console.warn("[CameraFeed] WS error", e);
-    ws.onclose = () => console.log("[CameraFeed] WS closed");
+    ws.onclose = () => {
+      setWsConnected(false);
+      if (typeof onConnRef.current === "function") onConnRef.current(false);
+      console.log("[CameraFeed] WS closed");
+    };
 
     ws.onmessage = (evt) => {
       try {
@@ -39,10 +54,22 @@ export default function CameraFeed({ wsUrl, enabled = true }) {
     };
   }, [wsUrl, enabled]);
 
+  const connected = Boolean(enabled && wsUrl && wsConnected);
+
   return (
     <div style={S.wrap}>
       {src ? (
-        <img src={src} alt="Drone camera" style={S.img} />
+        <div style={S.imgWrap}>
+          <Image
+            src={src}
+            alt="Drone camera"
+            fill
+            sizes="100vw"
+            style={S.img}
+            unoptimized
+            priority={false}
+          />
+        </div>
       ) : (
         <div style={S.placeholder}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -50,7 +77,9 @@ export default function CameraFeed({ wsUrl, enabled = true }) {
             <circle cx="12" cy="13" r="4"/>
           </svg>
           <div style={S.placeholderText}>Awaiting video stream</div>
-          <div style={S.placeholderSub}>{wsUrl}</div>
+          <div style={S.placeholderSub}>
+            {connected ? "CONNECTED" : "DISCONNECTED"} · {wsUrl}
+          </div>
         </div>
       )}
     </div>
@@ -68,7 +97,8 @@ const S = {
     display: "grid",
     placeItems: "center",
   },
-  img: { width: "100%", height: "100%", objectFit: "cover" },
+  imgWrap: { position: "relative", width: "100%", height: "100%" },
+  img: { objectFit: "cover" },
   placeholder: {
     textAlign: "center",
     padding: 12,

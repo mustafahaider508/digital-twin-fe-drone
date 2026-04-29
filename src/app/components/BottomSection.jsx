@@ -6,23 +6,37 @@ import Telemetry3DChart from "./Telemetry3DChart";
 import EventLog from "./EventLog";
 import FaultInjectToolbar from "./FaultInjectToolbar";
 
-export default function BottomSection({ cameraMode, wsUrl, telemetry, telemetryHistory, events }) {
+export default function BottomSection({
+  cameraMode,
+  wsUrl,
+  telemetryHistory,
+  events,
+  onCameraConnectionChange,
+}) {
+  const gridCols = cameraMode === "FPV" ? "1fr 1fr" : "1fr 1fr 1fr";
+
   return (
-    <div style={styles.wrap}>
-      <div style={styles.grid}>
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
-              <circle cx="12" cy="13" r="4"/>
-            </svg>
-            <span style={styles.cardTitle}>Camera Feed</span>
+    <div>
+      <div style={{ ...styles.grid, gridTemplateColumns: gridCols }}>
+        {cameraMode !== "FPV" ? (
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              <span style={styles.cardTitle}>Camera Feed</span>
+            </div>
+            <div style={styles.cardBody}>
+              <CameraFeed
+                enabled={true}
+                wsUrl={wsUrl}
+                onConnectionChange={onCameraConnectionChange}
+              />
+              {/* <CameraFeed enabled={true}   wsUrl="ws://localhost:5555/stream?role=viewer&droneId=drone-01" /> */}
+            </div>
           </div>
-          <div style={styles.cardBody}>
-            <CameraFeed enabled={true}   wsUrl={wsUrl} />
-            {/* <CameraFeed enabled={true}   wsUrl="ws://localhost:5555/stream?role=viewer&droneId=drone-01" /> */}
-          </div>
-        </div>
+        ) : null}
 
         <div style={styles.card}>
           <div style={styles.cardHeader}>
@@ -72,7 +86,7 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr",
     gap: 6,
-    minHeight: 0,
+    minHeight: 280,
     flex: 1,
   },
   card: {

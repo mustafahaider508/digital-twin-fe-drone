@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/.venv-dronecam
 /.pnp
 .pnp.*
 .yarn/*
@@ -24,14 +25,32 @@
 .DS_Store
 *.pem
 
+# IDEs / editors
+.vscode/
+.idea/
+
+# Cursor local artifacts (never commit)
+.cursor/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
+
+# caches
+.eslintcache
+.turbo/
+.swc/
+.parcel-cache/
 
 # env files (can opt-in for committing if needed)
 .env*
+
+# python artifacts (never commit)
+__pycache__/
+*.py[cod]
 
 # vercel
 .vercel

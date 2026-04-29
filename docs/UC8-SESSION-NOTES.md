@@ -8,13 +8,22 @@ This document merges the **UC8 Test Execution Plan** (PDF) content with **this p
 
 - **Frontend dashboard:** `dt-dashboard-ui` — MapLibre 3D drone + KPI panels; consumes WebSocket telemetry from the backend.
 - **Backend:** `Digital-twin-Dashboard/simulator/server.js` — WebSocket `/ws` broadcasts `drone_state` (from MQTT dash topics) and, when ingesting UC2/UC8 readings, broadcasts `telemetry` + `anomaly`. REST: `/ingest`, `/events`, `/twins`, `/stats`.
+- **Telemetry publisher (this repo):** `drone_telemetry_loc.py` — publishes segmented metrics to MQTT `dash/<droneId>/<metric>` on `smartiotcloud.io:38131`, and publishes position JSON to `dash/drone/position` on `smartiotcloud.io:40387` (Node-RED flow input).
+- **Node-RED runtime:** subscribes to position + segmented metrics, normalises values, merges to one `drone_state` payload, and outputs it to the backend/UI via WebSocket.
+- **Camera stream:** binary JPEG frames over WebSocket (kept separate from numeric telemetry). In the current integration notes, the camera feed is consumed directly by the UI from `ws://smartiotcloud.io:38817/ws`.
 - **Broader UC8 doc:** Global KPIs (latency, throughput, refresh/render latency, prediction accuracy, security, scalability, etc.) are defined in **UC8 Evaluation and Performance Matrix.pdf** (separate document).
 
 ---
 
 ## 2. Scope caveat (from plan)
 
-Several UC8 items (**T4, T5, T7, T8, T9, T11**) need capabilities **not** present in `simulator/server.js` or the current UI unless you run a different backend. For those, the plan says to record **Not supported by current code** unless you extend the platform.
+Several UC8 items (**T4, T5, T7, T8, T9, T11**) need capabilities **not** present in the current Node-RED + simulator backend + UI flow. For those, record **Not supported by current code** unless you extend the platform.
+
+**In other words (current flow coverage):**
+
+- **Supported in current flow**: **T1, T3** (live state + visualisation), **T6** (fault/anomaly visibility, when using `/ingest`), **T10** (scalability smoke testing, in backend), **T12** (heterogeneous assets, via `/ingest` + `/twins`).
+- **Supported only if multi-tenant mode is enabled in backend/UI**: **T2** (tenant isolation).
+- **Not supported in current flow**: **T4, T5, T7, T8, T9, T11**.
 
 ---
 
@@ -83,18 +92,18 @@ For each test case, record: **Preconditions, Steps, KPIs, Evidence** (screenshot
 
 | ID | Title | Plan status | This platform |
 |----|--------|-------------|----------------|
-| **T1** | Validate Digital Twin synchronisation with physical CPS assets | Supported (UI + WS) | **Yes.** WS `drone_state`; UI: SYNC + RATE on `/dashboard`. Preconditions: simulator + drone telemetry producer (e.g. MQTT / `drone_telemetry_loc.py`). |
-| **T2** | Verify multi-tenant Digital Twin isolation | Not supported (single tenant) | **Yes (Phase A+B).** `tenantId` on ingest; `X-Tenant-Id` on reads; `/ws?tenantId=`; MQTT topic segment `sdn|dt/<tenant>/...`; UI tenant selector (`TenantProvider`). Optional `INGEST_API_KEY`. |
-| **T3** | Validate Digital Twin visualisation services | Supported | **Yes.** MapLibre + 3D + KPIs; UI: T3 panel + logs/export on map. |
-| **T4** | Evaluate semantic-aware CPS messaging | Not in simulator | **Not supported** by current backend. |
-| **T5** | Validate predictive analytics capability | Not implemented | **Not supported** unless you add a prediction service. |
-| **T6** | Evaluate CPS reliability monitoring | Partial → **now full in UI** | **Yes.** `/ingest` fault injection, `/events`, WS `anomaly`, event log + fault toolbar. |
+| **T1** | Validate Digital Twin synchronisation with physical CPS assets | Supported (UI + WS) | **Supported.** Current flow: Python telemetry → MQTT (`dash/...`) → Node-RED merge → backend `/ws` → UI. UI shows SYNC + RATE and map updates from `drone_state`. |
+| **T2** | Verify multi-tenant Digital Twin isolation | Not supported (single tenant) | **Conditionally supported.** Supported only when using the backend’s multi-tenant features (tenant-keyed ingest/read/WS) and the UI’s `tenantId` wiring (`/ws?tenantId=` + `X-Tenant-Id`). If you run a single-tenant backend/flow, record **Not supported**. |
+| **T3** | Validate Digital Twin visualisation services | Supported | **Supported.** MapLibre + 3D GLB drone + KPI panels. UI includes a **T3 “VISUALIZATION”** panel and export helpers for render-latency evidence. |
+| **T4** | Evaluate semantic-aware CPS messaging | Not in simulator | **Not supported** in the current flow (no semantic broker / ontology-driven routing implemented). |
+| **T5** | Validate predictive analytics capability | Not implemented | **Not supported** (no prediction service or model-driven forecasting/control). |
+| **T6** | Evaluate CPS reliability monitoring | Partial → **now full in UI** | **Supported (backend-dependent).** Supported when using the simulator backend `/ingest` + anomaly generation + `/events` and WS `anomaly`. UI shows Event Log + fault injection toolbar (if enabled). |
 | **T7** | Validate adaptive resource orchestration | Not implemented | **Not supported.** |
-| **T8** | Evaluate edge-to-cloud CPS coordination | Not implemented | **Not supported.** |
+| **T8** | Evaluate edge-to-cloud CPS coordination | Not implemented | **Not supported** as an automated coordination mechanism (you can still describe your edge→cloud path as architecture, but not as a tested orchestration feature). |
 | **T9** | Validate AI-driven CPS control loops | Not implemented | **Not supported.** |
-| **T10** | Assess scalability with increasing CPS assets | Supported (smoke) | **Yes** — `npm run load:t10` + **`GET /stats/throughput`** for ingest/WS rates, failures, memory, process CPU%. |
-| **T11** | Validate secure and trustworthy CPS coordination | Not implemented | **Not supported** (no auth/zoning in simulator as described). |
-| **T12** | Validate digital twin orchestration across heterogeneous CPS | Supported | **Yes.** `/ingest` + `/twins`; UI list/detail under `src/app/page.js`, `src/app/twins/[id]/page.js`. |
+| **T10** | Assess scalability with increasing CPS assets | Supported (smoke) | **Supported (backend-dependent).** Supported when running the backend load test (`npm run load:t10`) and reading `GET /stats/throughput` (rates, WS sends, failures, memory, CPU approx). |
+| **T11** | Validate secure and trustworthy CPS coordination | Not implemented | **Not supported** (no full auth/RBAC, zoning, audit, trust enforcement in the current flow). |
+| **T12** | Validate digital twin orchestration across heterogeneous CPS | Supported | **Supported (backend-dependent).** Supported when using `/ingest` with varied `deviceId/type` and verifying via `GET /twins`. UI also provides list/detail pages for twins. |
 
 ### T1 (detail)
 

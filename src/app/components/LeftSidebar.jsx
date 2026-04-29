@@ -17,6 +17,7 @@ export default function LeftSidebar({
   tenantPresets = [],
   onTenantChange,
   conn,
+  activeDroneId,
   followDrone,
   setFollowDrone,
   autoCenter,
@@ -26,6 +27,7 @@ export default function LeftSidebar({
   cameraMode,
   setCameraMode,
 }) {
+
   const tenantOptions = [...new Set([...(tenantPresets || []), tenantId].filter(Boolean))];
   const canPickTenant = typeof onTenantChange === "function";
 
@@ -42,6 +44,13 @@ export default function LeftSidebar({
           />
         </Section>
       ) : null}
+
+      <Section label="ACTIVE DRONE">
+        <div style={S.kvRow}>
+          <span style={S.kvKey}>Drone ID</span>
+          <span style={S.kvVal}>{activeDroneId || "—"}</span>
+        </div>
+      </Section>
 
       <Section label="LINK STATUS">
         <ConnRow label="Telemetry" ok={conn.mqtt} />
@@ -189,6 +198,24 @@ const S = {
     display: "flex",
     alignItems: "center",
     gap: 5,
+  },
+
+  kvRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: "3px 0",
+  },
+  kvKey: { fontSize: 10, color: "#94a3b8", fontWeight: 600 },
+  kvVal: {
+    fontSize: 10,
+    color: "#cbd5e1",
+    fontWeight: 700,
+    maxWidth: 120,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
 
   toggleRow: {
