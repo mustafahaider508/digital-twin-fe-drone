@@ -9,7 +9,6 @@ import FaultInjectToolbar from "./FaultInjectToolbar";
 export default function BottomSection({
   cameraMode,
   wsUrl,
-  telemetry,
   telemetryHistory,
   events,
   onCameraConnectionChange,

@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "NODE_OPTIONS=--max-old-space-size=4096 eslint .",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "screenshots:uc8": "playwright test tests/uc8-report-screenshots.spec.js",

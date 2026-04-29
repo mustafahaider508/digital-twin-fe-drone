@@ -122,9 +122,6 @@ export default function DroneDashboard() {
     return p && typeof p === "object" ? p : droneState;
   }, [droneState]);
 
-
-  console.log("droneState++++++++",droneState);
-
   // Load anomalies from REST on a schedule — does not depend on WS (fixes empty log when WS
   // connects late, drops anomaly frames, or backend only persists to store.events).
   useEffect(() => {
@@ -325,7 +322,6 @@ export default function DroneDashboard() {
         <BottomSection
           cameraMode={cameraMode}
           wsUrl={cameraWsUrl}
-          telemetry={telemetry}
           telemetryHistory={telemetryHistory}
           events={eventLogRows}
           onCameraConnectionChange={setCamConnected}

@@ -27,24 +27,25 @@ function ChartScene({ battery = [], altitude = [], speed = [] }) {
     return { min, max, range };
   }, [battery, altitude, speed]);
 
-  const toX = (i, n) => (n <= 1 ? 0 : (i / (n - 1)) * 2 - 1);
-  const toY = (v) => ((v - scale.min) / scale.range) * 1.6 - 0.8;
+  const battPoints = useMemo(() => {
+    const toX = (i, n) => (n <= 1 ? 0 : (i / (n - 1)) * 2 - 1);
+    const toY = (v) => ((v - scale.min) / scale.range) * 1.6 - 0.8;
+    return battery.map((d, i) => new THREE.Vector3(toX(i, battery.length), toY(d.v), 0));
+  }, [battery, scale.min, scale.range]);
 
-  const battPoints = useMemo(
-    () =>
-      battery.map((d, i) => new THREE.Vector3(toX(i, battery.length), toY(d.v), 0)),
-    [battery, scale.range, scale.min]
-  );
-  const altPoints = useMemo(
-    () =>
-      altitude.map((d, i) => new THREE.Vector3(toX(i, altitude.length), toY(d.v), -0.15)),
-    [altitude, scale.range, scale.min]
-  );
-  const spdPoints = useMemo(
-    () =>
-      speed.map((d, i) => new THREE.Vector3(toX(i, speed.length), toY(d.v), 0.15)),
-    [speed, scale.range, scale.min]
-  );
+  const altPoints = useMemo(() => {
+    const toX = (i, n) => (n <= 1 ? 0 : (i / (n - 1)) * 2 - 1);
+    const toY = (v) => ((v - scale.min) / scale.range) * 1.6 - 0.8;
+    return altitude.map((d, i) =>
+      new THREE.Vector3(toX(i, altitude.length), toY(d.v), -0.15)
+    );
+  }, [altitude, scale.min, scale.range]);
+
+  const spdPoints = useMemo(() => {
+    const toX = (i, n) => (n <= 1 ? 0 : (i / (n - 1)) * 2 - 1);
+    const toY = (v) => ((v - scale.min) / scale.range) * 1.6 - 0.8;
+    return speed.map((d, i) => new THREE.Vector3(toX(i, speed.length), toY(d.v), 0.15));
+  }, [speed, scale.min, scale.range]);
 
   return (
     <>

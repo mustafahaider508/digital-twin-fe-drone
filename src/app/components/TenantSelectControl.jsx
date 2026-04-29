@@ -1,14 +1,12 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 
 /**
  * Tenant picker styled for the drone dashboard glass panels (TopBar / KPI / sidebar theme).
  * Green dot + ACTIVE label match live / ONLINE indicators (#34d399).
  */
 export default function TenantSelectControl({ tenantId, tenantOptions, onTenantChange }) {
-  if (typeof onTenantChange !== "function") return null;
-
   const options = useMemo(() => {
     const list = Array.isArray(tenantOptions) ? tenantOptions : [];
     const merged = [...new Set([...(list || []), tenantId].filter(Boolean).map(String))];
@@ -16,11 +14,7 @@ export default function TenantSelectControl({ tenantId, tenantOptions, onTenantC
     return merged;
   }, [tenantOptions, tenantId]);
 
-
-  const TenantsArray = ["Drone1", "Drone2", "Drone3"];
-
-  const [custom, setCustom] = useState("");
-  const canUseCustom = /^[\\w.-]{1,64}$/.test(custom.trim());
+  if (typeof onTenantChange !== "function") return null;
 
   return (
     <div style={S.wrap}>
@@ -36,7 +30,7 @@ export default function TenantSelectControl({ tenantId, tenantOptions, onTenantC
           style={S.select}
           aria-label="Select tenant"
         >
-          {TenantsArray.map((t) => (
+          {options.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
