@@ -6,7 +6,6 @@ import { tenantHeaders, useTenant } from "@/app/providers/TenantProvider";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5555";
 
 const SHOW =
-  process.env.NODE_ENV === "development" ||
   process.env.NEXT_PUBLIC_SIMULATOR_CONTROLS === "true";
 
 function btnStyle(accent) {

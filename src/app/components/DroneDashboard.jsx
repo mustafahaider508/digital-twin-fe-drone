@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import DroneMap from "@/app/components/DroneMap";
 import useDroneTelemetry from "@/app/hooks/useDroneTelemetry";
 
@@ -12,12 +12,17 @@ import BottomSection from "./BottomSection";
 import CameraFeed from "./CameraFeed";
 import { PRESETS, tenantHeaders, useTenant } from "@/app/providers/TenantProvider";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5555";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 /** Set NEXT_PUBLIC_DEBUG_DRONE_TELEMETRY=1 in .env.local — shows merged backend `drone_state` (segmentation output). */
 const SHOW_BACKEND_MERGE_PANEL =
   process.env.NEXT_PUBLIC_DEBUG_DRONE_TELEMETRY === "1" ||
   process.env.NEXT_PUBLIC_DEBUG_DRONE_TELEMETRY === "true";
+
+/** Set NEXT_PUBLIC_DEBUG_BACKEND_WS=1 — shows last WS messages + console traces (prove what backend is sending). */
+const SHOW_BACKEND_WS_PANEL =
+  process.env.NEXT_PUBLIC_DEBUG_BACKEND_WS === "1" ||
+  process.env.NEXT_PUBLIC_DEBUG_BACKEND_WS === "true";
 
 /** Map simulator / WS anomaly payload to EventLog row ({ id, ts, msg, level }). */
 function formatAnomalyForLog(e) {
@@ -50,6 +55,17 @@ function formatAnomalyForLog(e) {
     (e.deviceId ? `Anomaly · ${e.deviceId}` : "Anomaly detected");
   const layer = e.layer && e.layer !== "unknown" ? ` · ${e.layer}` : "";
   return { id, ts, msg: `${msg}${layer}`, level, _sortTime: sortTime };
+}
+
+/** Normalize common `/events` JSON shapes so the log works across backends. */
+function pickEventItemsFromResponse(data) {
+  if (!data) return null;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.items)) return data.items;
+  if (Array.isArray(data.events)) return data.events;
+  if (Array.isArray(data.records)) return data.records;
+  if (Array.isArray(data.data)) return data.data;
+  return null;
 }
 
 export default function DroneDashboard() {
@@ -85,9 +101,40 @@ export default function DroneDashboard() {
     events: wsAnomalyEvents,
     syncLatencyMs,
     droneStateHz,
+    wsIngestTail,
   } = useDroneTelemetry(telemetryWsUrl);
 
+
+  console.log("telemetry", telemetry);
+  console.log("droneState", droneState);
+  console.log("wsAnomalyEvents", wsAnomalyEvents);
+  console.log("syncLatencyMs", syncLatencyMs);
+  console.log("droneStateHz", droneStateHz);
+  console.log("wsIngestTail", wsIngestTail);
+  console.log("connected", connected);
+  console.log("camConnected", camConnected);
+  console.log("tenantId", tenantId);
+
+
   const [restEvents, setRestEvents] = useState([]);
+
+  const fetchEventsOnce = useCallback(() => {
+    if (!API_BASE) return Promise.resolve(null);
+    return fetch(`${API_BASE}/events?limit=50`, {
+      cache: "no-store",
+      headers: tenantHeaders(tenantId),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => pickEventItemsFromResponse(data));
+  }, [tenantId]);
+
+  const onRefreshEventLog = useCallback(() => {
+    fetchEventsOnce()
+      .then((items) => {
+        if (items) setRestEvents(items);
+      })
+      .catch(() => {});
+  }, [fetchEventsOnce]);
 
   // Optional: discover tenants dynamically from backend; fallback to env presets.
   useEffect(() => {
@@ -116,6 +163,7 @@ export default function DroneDashboard() {
     };
   }, [tenantId]);
 
+
   const mergedBackendPayload = useMemo(() => {
     if (!droneState || typeof droneState !== "object") return null;
     const p = droneState.payload;
@@ -125,16 +173,13 @@ export default function DroneDashboard() {
   // Load anomalies from REST on a schedule — does not depend on WS (fixes empty log when WS
   // connects late, drops anomaly frames, or backend only persists to store.events).
   useEffect(() => {
+    if (!API_BASE) return;
     let cancelled = false;
     const loadEvents = () => {
-      fetch(`${API_BASE}/events?limit=50`, {
-        cache: "no-store",
-        headers: tenantHeaders(tenantId),
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (cancelled || !data || !Array.isArray(data.items)) return;
-          setRestEvents(data.items);
+      fetchEventsOnce()
+        .then((items) => {
+          if (cancelled || !items) return;
+          setRestEvents(items);
         })
         .catch(() => {});
     };
@@ -144,7 +189,7 @@ export default function DroneDashboard() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [tenantId]);
+  }, [fetchEventsOnce]);
 
   const eventLogRows = useMemo(() => {
     const byId = new Map();
@@ -177,24 +222,27 @@ export default function DroneDashboard() {
 
   const HISTORY_LEN = 60;
   const [telemetryHistory, setTelemetryHistory] = useState(() => {
-    const base = { battery: 82, altitude: 80, speed: 64 };
+    // Start empty/zero so we don't show “demo-ish” values before real telemetry arrives.
+    const base = { battery: 0, altitude: 0, speed: 0 };
     return {
       battery: Array.from({ length: HISTORY_LEN }, (_, i) => ({
         t: i,
-        v: base.battery + Math.sin(i / 5) * 6 + (i < 10 ? 0 : (i - HISTORY_LEN) * 0.1),
+        v: base.battery,
       })),
       altitude: Array.from({ length: HISTORY_LEN }, (_, i) => ({
         t: i,
-        v: base.altitude + Math.sin(i / 4) * 8 + Math.cos(i / 7) * 5,
+        v: base.altitude,
       })),
       speed: Array.from({ length: HISTORY_LEN }, (_, i) => ({
         t: i,
-        v: base.speed + Math.sin(i / 6) * 10,
+        v: base.speed,
       })),
     };
   });
 
   useEffect(() => {
+    // Only build history when telemetry is actually live.
+    if (!connected || telemetry.status !== "LIVE") return;
     const interval = setInterval(() => {
       setTelemetryHistory((prev) => {
         const push = (arr, value) => {
@@ -202,14 +250,15 @@ export default function DroneDashboard() {
           return next.length > HISTORY_LEN ? next.slice(-HISTORY_LEN) : next;
         };
         return {
-          battery: push(prev.battery, telemetry.battery + (Math.random() - 0.5) * 4),
-          altitude: push(prev.altitude, telemetry.altitude + (Math.random() - 0.5) * 6),
-          speed: push(prev.speed, telemetry.speed + (Math.random() - 0.5) * 4),
+          // No mock jitter: history should reflect real values only.
+          battery: push(prev.battery, telemetry.battery),
+          altitude: push(prev.altitude, telemetry.altitude),
+          speed: push(prev.speed, telemetry.speed),
         };
       });
     }, 2000);
     return () => clearInterval(interval);
-  }, [telemetry.battery, telemetry.altitude, telemetry.speed]);
+  }, [connected, telemetry.status, telemetry.battery, telemetry.altitude, telemetry.speed]);
 
   return (
     <div style={styles.page}>
@@ -275,6 +324,35 @@ export default function DroneDashboard() {
               />
             </div>
 
+            {SHOW_BACKEND_WS_PANEL && (
+              <div style={styles.mergeDebugPanel} aria-label="Backend WebSocket ingest trace">
+                <div style={styles.mergeDebugTitle}>Backend `/ws` ingest trace</div>
+                <p style={styles.mergeDebugHint}>
+                  This shows the last messages your browser received from{" "}
+                  <span style={{ fontFamily: "ui-monospace, monospace" }}>{telemetryWsUrl}</span>.
+                  If you see repeating <span style={{ fontFamily: "ui-monospace, monospace" }}>drone_state</span> here while
+                  your Python publisher is off, the movement is coming from <b>your backend/Node-RED</b> (or another publisher),
+                  not this UI.
+                </p>
+                {!wsIngestTail || !wsIngestTail.length ? (
+                  <pre style={styles.mergeDebugPre}>No WS messages captured yet.</pre>
+                ) : (
+                  <pre style={styles.mergeDebugPre}>
+                    {wsIngestTail
+                      .map(
+                        (r) =>
+                          `${r.receivedIso}  type=${r.type}` +
+                          (r.droneId ? `  droneId=${r.droneId}` : "") +
+                          (r.lat != null && r.lon != null ? `  lat=${r.lat} lon=${r.lon}` : "") +
+                          (r.ts != null ? `  ts=${r.ts}` : "") +
+                          (r.dataPreview ? `\n  data=${r.dataPreview}` : "")
+                      )
+                      .join("\n\n")}
+                  </pre>
+                )}
+              </div>
+            )}
+
             {SHOW_BACKEND_MERGE_PANEL && (
               <div style={styles.mergeDebugPanel} aria-label="Merged drone_state from backend">
                 <div style={styles.mergeDebugTitle}>Backend merged drone_state (segmentation)</div>
@@ -314,7 +392,7 @@ export default function DroneDashboard() {
         </div>
 
         <div style={styles.rightCol}>
-          <RightPanel telemetry={telemetry} />
+          <RightPanel telemetry={telemetry} live={connected} />
         </div>
       </div>
 
@@ -325,6 +403,7 @@ export default function DroneDashboard() {
           telemetryHistory={telemetryHistory}
           events={eventLogRows}
           onCameraConnectionChange={setCamConnected}
+          onRefreshEventLog={onRefreshEventLog}
         />
       </div>
     </div>

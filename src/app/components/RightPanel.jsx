@@ -5,7 +5,9 @@ import Gauge from "./Gauge";
 import Battery3DGauge from "./Battery3DGauge";
 import Orientation3D from "./Orientation3D";
 
-export default function RightPanel({ telemetry }) {
+export default function RightPanel({ telemetry, live = false }) {
+  const isLive = live && telemetry?.status === "LIVE";
+
   return (
     <div style={S.panel}>
       <div style={S.panelTitle}>Workspace</div>
@@ -15,9 +17,9 @@ export default function RightPanel({ telemetry }) {
         <div
           style={{
             ...S.statusPill,
-            color: "#34d399",
-            borderColor: "rgba(52,211,153,0.25)",
-            background: "rgba(52,211,153,0.08)",
+            color: isLive ? "#34d399" : "#f87171",
+            borderColor: isLive ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)",
+            background: isLive ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
           }}
           data-testid="telemetry-status"
         >
@@ -27,17 +29,29 @@ export default function RightPanel({ telemetry }) {
 
       {/* 3D Battery */}
       <div style={S.sectionLabel}>3D BATTERY</div>
-      <Battery3DGauge value={telemetry?.battery ?? 82} label="Battery" />
+      <Battery3DGauge value={telemetry?.battery} label="Battery" live={isLive} />
 
       {/* KPI Grid */}
       <div style={S.sectionLabel}>PERFORMANCE</div>
       <div style={S.kpiGrid}>
-        <KpiCard label="Altitude" value={`${telemetry.altitude} m`} color="#38bdf8" />
-        <KpiCard label="Speed" value={`${telemetry.speed} km/h`} color="#818cf8" />
-        <KpiCard label="Dist GCS" value={`${telemetry.distToGcs} m`} color="#94a3b8" />
+        <KpiCard
+          label="Altitude"
+          value={isLive && telemetry.altitude != null ? `${telemetry.altitude} m` : "—"}
+          color="#38bdf8"
+        />
+        <KpiCard
+          label="Speed"
+          value={isLive && telemetry.speed != null ? `${telemetry.speed} km/h` : "—"}
+          color="#818cf8"
+        />
+        <KpiCard
+          label="Dist GCS"
+          value={isLive && telemetry.distToGcs != null ? `${telemetry.distToGcs} m` : "—"}
+          color="#94a3b8"
+        />
         <KpiCard
           label="Flight"
-          value={`${telemetry.flightTime} min`}
+          value={isLive && telemetry.flightTime != null ? `${telemetry.flightTime} min` : "—"}
           color="#fbbf24"
           span2
         />
@@ -46,15 +60,33 @@ export default function RightPanel({ telemetry }) {
       {/* Orientation */}
       <div style={S.sectionLabel}>ORIENTATION</div>
       <Orientation3D
-        yaw={telemetry.yaw}
-        pitch={telemetry.pitch}
-        roll={telemetry.roll}
+        yaw={telemetry.yaw ?? 0}
+        pitch={telemetry.pitch ?? 0}
+        roll={telemetry.roll ?? 0}
         style={{ marginBottom: 6 }}
       />
       <div style={S.gaugeGrid}>
-        <Gauge label="Yaw" value={telemetry.yaw} min={-180} max={180} unit="°" />
-        <Gauge label="Pitch" value={telemetry.pitch} min={-90} max={90} unit="°" />
-        <Gauge label="Roll" value={telemetry.roll} min={-180} max={180} unit="°" />
+        <Gauge
+          label="Yaw"
+          value={telemetry.yaw ?? 0}
+          min={-180}
+          max={180}
+          unit="°"
+        />
+        <Gauge
+          label="Pitch"
+          value={telemetry.pitch ?? 0}
+          min={-90}
+          max={90}
+          unit="°"
+        />
+        <Gauge
+          label="Roll"
+          value={telemetry.roll ?? 0}
+          min={-180}
+          max={180}
+          unit="°"
+        />
       </div>
     </div>
   );

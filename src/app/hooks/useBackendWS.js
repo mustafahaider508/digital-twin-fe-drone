@@ -2,6 +2,51 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// Consider telemetry "live" only if we received drone_state recently.
+const LIVE_TIMEOUT_MS = 3000;
+
+const DEBUG_BACKEND_WS =
+  process.env.NEXT_PUBLIC_DEBUG_BACKEND_WS === "1" ||
+  process.env.NEXT_PUBLIC_DEBUG_BACKEND_WS === "true";
+
+function previewData(data, maxLen = 360) {
+  if (data == null) return null;
+  try {
+    const s = typeof data === "string" ? data : JSON.stringify(data);
+    if (s.length <= maxLen) return s;
+    return `${s.slice(0, maxLen)}…`;
+  } catch {
+    return String(data);
+  }
+}
+
+function summarizeWsMessage(msg) {
+  const type = msg && typeof msg === "object" && msg.type != null ? String(msg.type) : "unknown";
+  const data = msg && typeof msg === "object" ? msg.data : undefined;
+
+  let droneId = null;
+  let lat = null;
+  let lon = null;
+  let ts = null;
+
+  if (data && typeof data === "object") {
+    const p = data.payload && typeof data.payload === "object" ? data.payload : data;
+    droneId = p.droneId ?? p.deviceId ?? null;
+    lat = p.lat ?? p.latitude ?? (p.position && p.position.lat) ?? null;
+    lon = p.lon ?? p.lng ?? p.longitude ?? (p.position && p.position.lon) ?? null;
+    ts = p.ts ?? p.timestamp ?? null;
+  }
+
+  return {
+    type,
+    droneId,
+    lat,
+    lon,
+    ts,
+    dataPreview: previewData(data, 420),
+  };
+}
+
 function extractDroneTs(data) {
   if (!data || typeof data !== "object") return null;
   const raw = data.payload && typeof data.payload === "object" ? data.payload : data;
@@ -13,12 +58,17 @@ function extractDroneTs(data) {
 
 export default function useBackendWS(wsUrl) {
   const wsRef = useRef(null);
+  // "connected" here means: we are receiving live drone_state (not just TCP/WS open).
   const [connected, setConnected] = useState(false);
+  const lastDroneStateAtRef = useRef(null);
 
   // ✅ latest live data
   const [droneState, setDroneState] = useState(null);
   const [events, setEvents] = useState([]);
   const [stats, setStats] = useState(null);
+
+  // Debug: last WS messages seen (only populated when NEXT_PUBLIC_DEBUG_BACKEND_WS=1)
+  const [wsIngestTail, setWsIngestTail] = useState([]);
 
   // T1: sync latency (browser receive vs payload ts) + drone_state rate (sliding 1s window)
   const droneStateArrivalRef = useRef([]);
@@ -33,9 +83,22 @@ export default function useBackendWS(wsUrl) {
 
   useEffect(() => {
     if (!wsUrl) return;
-    const tick = setInterval(pruneArrivalWindow, 500);
+    const tick = setInterval(() => {
+      pruneArrivalWindow();
+      const last = lastDroneStateAtRef.current;
+      const live = last != null && Date.now() - last <= LIVE_TIMEOUT_MS;
+      setConnected(live);
+    }, 500);
     return () => clearInterval(tick);
   }, [wsUrl, pruneArrivalWindow]);
+
+  useEffect(() => {
+    // If telemetry stops, clear stale merged state so KPIs can't show last-known values as "live".
+    if (!connected) {
+      setDroneState(null);
+      setSyncLatencyMs(null);
+    }
+  }, [connected]);
 
   useEffect(() => {
     if (!wsUrl) return;
@@ -49,12 +112,14 @@ export default function useBackendWS(wsUrl) {
 
       ws.onopen = () => {
         retry = 0;
-        setConnected(true);
+        // Don't mark "connected" until we receive drone_state.
+        setConnected(false);
         console.log("✅ WS connected:", wsUrl);
       };
 
       ws.onclose = () => {
         setConnected(false);
+        lastDroneStateAtRef.current = null;
         droneStateArrivalRef.current = [];
         setDroneStateHz(0);
         setSyncLatencyMs(null);
@@ -75,10 +140,33 @@ export default function useBackendWS(wsUrl) {
         try {
           const msg = JSON.parse(e.data);
 
+          if (DEBUG_BACKEND_WS) {
+            const receivedAt = Date.now();
+            const summary = summarizeWsMessage(msg);
+            setWsIngestTail((prev) => {
+              const next = [
+                {
+                  receivedAt,
+                  receivedIso: new Date(receivedAt).toISOString(),
+                  ...summary,
+                },
+                ...(Array.isArray(prev) ? prev : []),
+              ];
+              return next.slice(0, 25);
+            });
+            // Also log a single-line trace for copy/paste debugging.
+            console.log(
+              `[BackendWS] ${summary.type}`,
+              summary.droneId ? `droneId=${summary.droneId}` : "",
+              summary.lat != null && summary.lon != null ? `lat=${summary.lat} lon=${summary.lon}` : "",
+              summary.ts != null ? `ts=${summary.ts}` : ""
+            );
+          }
+
           // Backend format: { type, data }
           if (msg.type === "snapshot") {
-            // includes droneState if you added it (recommended)
-            if (msg.data?.droneState) setDroneState(msg.data.droneState);
+            // Snapshot can contain stale droneState; don't let it masquerade as live telemetry.
+            // We still load events/stats if present.
             if (Array.isArray(msg.data?.events)) setEvents(msg.data.events);
             if (msg.data?.stats) setStats(msg.data.stats);
           }
@@ -86,6 +174,7 @@ export default function useBackendWS(wsUrl) {
           // ✅ live drone update from Express (rebroadcasted from Node-RED)
           if (msg.type === "drone_state") {
             const now = Date.now();
+            lastDroneStateAtRef.current = now;
             droneStateArrivalRef.current.push(now);
             pruneArrivalWindow();
 
@@ -118,5 +207,13 @@ export default function useBackendWS(wsUrl) {
     };
   }, [wsUrl, pruneArrivalWindow]);
 
-  return { connected, droneState, events, stats, syncLatencyMs, droneStateHz };
+  return {
+    connected,
+    droneState,
+    events,
+    stats,
+    syncLatencyMs,
+    droneStateHz,
+    ...(DEBUG_BACKEND_WS ? { wsIngestTail } : {}),
+  };
 }

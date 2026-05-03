@@ -6,9 +6,6 @@ import * as THREE from "three";
 import { GLTFLoader } from "three-stdlib";
 
 const BASE_PATH = process.env.__NEXT_ROUTER_BASEPATH || "";
-const ENABLE_T3_MOCK =
-  process.env.NEXT_PUBLIC_MOCK_T3 === "1" ||
-  process.env.NEXT_PUBLIC_MOCK_T3 === "true";
 
 // Camera defaults
 const DEFAULT_ZOOM = 15;
@@ -212,6 +209,35 @@ export default function DroneMap({
     return () => clearInterval(id);
   }, [pruneVizArrivals]);
 
+  // If drone_state stops arriving, clear the trail so the UI doesn't look like recent motion.
+  useEffect(() => {
+    if (packetAgeMs == null) return;
+    if (packetAgeMs <= 4000) return;
+
+    trailCoordsRef.current = [];
+    trailLastPushAtRef.current = 0;
+
+    const map = mapRef.current;
+    if (!map) return;
+    const src = map.getSource("dt-trail");
+    if (src && typeof src.setData === "function") {
+      try {
+        src.setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: { type: "LineString", coordinates: [] },
+            },
+          ],
+        });
+      } catch {
+        // ignore
+      }
+    }
+  }, [packetAgeMs]);
+
   const wsUrl = useMemo(() => {
     if (wsUrlProp) return wsUrlProp;
     if (typeof window === "undefined") return null;
@@ -263,52 +289,6 @@ export default function DroneMap({
   // Keep a ref to latest applyState so WS effect doesn't depend on it (avoids reconnect on re-render)
   const applyStateRef = useRef(applyState);
   applyStateRef.current = applyState;
-
-  // Optional: mock drone_state stream (lets UC8-T3 visualization work without backend)
-  useEffect(() => {
-    if (!ENABLE_T3_MOCK) return;
-    if (wsStatus === "CONNECTED") return;
-
-    setWsStatus("MOCK");
-
-    const start = {
-      lon: smoothRef.current.lon,
-      lat: smoothRef.current.lat,
-      alt: smoothRef.current.alt || 30,
-    };
-
-    const t0 = Date.now();
-    const radius = 0.00055; // ~60m-ish at mid latitudes
-    const periodMs = 9000;
-
-    const id = setInterval(() => {
-      // If real WS connects, stop the mock immediately.
-      if (wsStatus === "CONNECTED") return;
-
-      const t = Date.now() - t0;
-      const a = ((t % periodMs) / periodMs) * Math.PI * 2;
-
-      const lon = start.lon + Math.cos(a) * radius;
-      const lat = start.lat + Math.sin(a) * radius;
-      const yaw = ((a * 180) / Math.PI + 90) % 360;
-
-      applyStateRef.current(
-        {
-          droneId: "mock-drone",
-          lon,
-          lat,
-          alt: start.alt + 6 + Math.sin(a * 2) * 2,
-          yaw,
-          pitch: Math.sin(a) * 7,
-          roll: Math.cos(a) * 6,
-          ts: Date.now(),
-        },
-        "drone_state"
-      );
-    }, 120);
-
-    return () => clearInterval(id);
-  }, [wsStatus]);
 
   // changed: browser export helpers for T3 evidence
   useEffect(() => {

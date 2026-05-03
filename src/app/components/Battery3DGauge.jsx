@@ -83,7 +83,7 @@ function BatteryShell({ color }) {
 
 function BatteryFill({ value, color }) {
   const raw = Number(value);
-  const pct = Math.max(0, Math.min(100, Number.isFinite(raw) ? raw : 82)) / 100;
+  const pct = Math.max(0, Math.min(100, Number.isFinite(raw) ? raw : 0)) / 100;
   const fillHeight = Math.max(pct * (TANK_HEIGHT - 0.08), 0.04);
   const fillCenterY = -TANK_HEIGHT / 2 + fillHeight / 2 + 0.02;
 
@@ -127,9 +127,9 @@ function FloorGlow({ color }) {
   );
 }
 
-function BatteryScene({ value, color, glowColor }) {
+function BatteryScene({ value, color, glowColor, live }) {
   const raw = Number(value);
-  const safeValue = Number.isFinite(raw) ? raw : 82;
+  const hasValue = live && Number.isFinite(raw);
 
   return (
     <>
@@ -142,7 +142,7 @@ function BatteryScene({ value, color, glowColor }) {
       <group position={[0, -0.02, 0]} rotation={[0, -0.34, 0]}>
         <FloorGlow color={color} />
         <BatteryShell color={color} />
-        <BatteryFill value={safeValue} color={color} />
+        {hasValue ? <BatteryFill value={raw} color={color} /> : null}
       </group>
 
       <Html position={[0, 0.88, 0]} center>
@@ -157,7 +157,7 @@ function BatteryScene({ value, color, glowColor }) {
             whiteSpace: "nowrap",
           }}
         >
-          {Math.round(safeValue)}%
+          {hasValue ? `${Math.round(raw)}%` : "—"}
         </div>
       </Html>
     </>
@@ -165,18 +165,20 @@ function BatteryScene({ value, color, glowColor }) {
 }
 
 export default function Battery3DGauge({
-  value = 82,
+  value,
   label = "Battery",
+  live = false,
   style = {},
   height = 190,
   color,
   glowColor,
 }) {
   const raw = Number(value);
-  const pct = Math.max(0, Math.min(100, Number.isFinite(raw) ? raw : 82)) / 100;
-  const resolvedColor = useMemo(() => getBatteryColor(pct, color), [pct, color]);
-  const resolvedGlow = useMemo(() => getBatteryGlow(pct, glowColor), [pct, glowColor]);
-  const displayValue = Number.isFinite(raw) ? raw : 82;
+  const hasValue = live && Number.isFinite(raw);
+  const safePct = hasValue ? Math.max(0, Math.min(100, raw)) / 100 : 0;
+  const resolvedColor = useMemo(() => getBatteryColor(safePct, color), [safePct, color]);
+  const resolvedGlow = useMemo(() => getBatteryGlow(safePct, glowColor), [safePct, glowColor]);
+  const displayValue = hasValue ? raw : null;
 
   return (
     <div
@@ -230,6 +232,7 @@ export default function Battery3DGauge({
             value={displayValue}
             color={resolvedColor}
             glowColor={resolvedGlow}
+            live={live}
           />
         </Canvas>
       </div>
@@ -254,7 +257,7 @@ export default function Battery3DGauge({
         >
           <div
             style={{
-              width: `${Math.max(0, Math.min(100, displayValue))}%`,
+              width: `${hasValue ? Math.max(0, Math.min(100, displayValue)) : 0}%`,
               height: "100%",
               borderRadius: 999,
               background: `linear-gradient(90deg, ${resolvedColor}, ${resolvedColor})`,
@@ -274,7 +277,7 @@ export default function Battery3DGauge({
             fontVariantNumeric: "tabular-nums",
           }}
         >
-          {Math.round(displayValue)}%
+          {hasValue ? `${Math.round(displayValue)}%` : "—"}
         </div>
       </div>
     </div>

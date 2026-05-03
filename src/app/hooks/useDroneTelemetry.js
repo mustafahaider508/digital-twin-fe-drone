@@ -43,27 +43,29 @@ function buildSegmentedJsonView(raw) {
 
 /**
  * Parse backend values: "20 Degrees" -> 20, "280m" -> 280, "55mins" -> 55
+ * Returns `null` if the input is missing/empty/unparseable (avoid showing "0" as fake telemetry).
  */
-function parseNumber(value) {
-  if (value == null) return 0;
-  if (typeof value === "number" && !Number.isNaN(value)) return value;
+function parseNumberMaybe(value) {
+  if (value == null) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
   const s = String(value).replace(/[^0-9.+-]/g, "").trim();
+  if (!s) return null;
   const n = parseFloat(s);
-  return Number.isNaN(n) ? 0 : n;
+  return Number.isNaN(n) ? null : n;
 }
 
 /**
  * Default telemetry shape so RightPanel and other consumers never get undefined.
  */
 const DEFAULT_TELEMETRY = {
-  battery: 0,
-  speed: 0,
-  altitude: 0,
-  distToGcs: 0,
-  flightTime: 0,
-  yaw: 0,
-  pitch: 0,
-  roll: 0,
+  battery: null,
+  speed: null,
+  altitude: null,
+  distToGcs: null,
+  flightTime: null,
+  yaw: null,
+  pitch: null,
+  roll: null,
   status: "—",
 };
 
@@ -72,7 +74,7 @@ const DEFAULT_TELEMETRY = {
  * Handles both merged WS payload (drone_state) and raw field names from backend.
  */
 function mapDroneStateToTelemetry(droneState, connected) {
-  if (!droneState) {
+  if (!connected || !droneState) {
     return {
       ...DEFAULT_TELEMETRY,
       status: connected ? "—" : "DISCONNECTED",
@@ -80,16 +82,21 @@ function mapDroneStateToTelemetry(droneState, connected) {
   }
 
   const raw = droneState.payload || droneState;
-  const battery = raw.battery != null ? parseNumber(raw.battery) : DEFAULT_TELEMETRY.battery;
-  const speed = raw.speed != null ? parseNumber(raw.speed) : DEFAULT_TELEMETRY.speed;
-  const altitude = raw.altitude != null ? parseNumber(raw.altitude) : (raw.alt != null ? parseNumber(raw.alt) : DEFAULT_TELEMETRY.altitude);
+  const battery = raw.battery != null ? parseNumberMaybe(raw.battery) : DEFAULT_TELEMETRY.battery;
+  const speed = raw.speed != null ? parseNumberMaybe(raw.speed) : DEFAULT_TELEMETRY.speed;
+  const altitude =
+    raw.altitude != null
+      ? parseNumberMaybe(raw.altitude)
+      : raw.alt != null
+        ? parseNumberMaybe(raw.alt)
+        : DEFAULT_TELEMETRY.altitude;
   const distRaw = raw.dist_gcs ?? raw.distToGcs;
-  const distToGcs = distRaw != null ? parseNumber(distRaw) : DEFAULT_TELEMETRY.distToGcs;
+  const distToGcs = distRaw != null ? parseNumberMaybe(distRaw) : DEFAULT_TELEMETRY.distToGcs;
   const timeRaw = raw.flight_time_left ?? raw.flightTime ?? raw.flight_time;
-  const flightTime = timeRaw != null ? parseNumber(timeRaw) : DEFAULT_TELEMETRY.flightTime;
-  const yaw = raw.yaw != null ? parseNumber(raw.yaw) : DEFAULT_TELEMETRY.yaw;
-  const pitch = raw.pitch != null ? parseNumber(raw.pitch) : DEFAULT_TELEMETRY.pitch;
-  const roll = raw.roll != null ? parseNumber(raw.roll) : DEFAULT_TELEMETRY.roll;
+  const flightTime = timeRaw != null ? parseNumberMaybe(timeRaw) : DEFAULT_TELEMETRY.flightTime;
+  const yaw = raw.yaw != null ? parseNumberMaybe(raw.yaw) : DEFAULT_TELEMETRY.yaw;
+  const pitch = raw.pitch != null ? parseNumberMaybe(raw.pitch) : DEFAULT_TELEMETRY.pitch;
+  const roll = raw.roll != null ? parseNumberMaybe(raw.roll) : DEFAULT_TELEMETRY.roll;
 
   return {
     battery,
@@ -100,7 +107,7 @@ function mapDroneStateToTelemetry(droneState, connected) {
     yaw,
     pitch,
     roll,
-    status: connected ? "LIVE" : "DISCONNECTED",
+    status: "LIVE",
   };
 }
 
@@ -112,7 +119,8 @@ function mapDroneStateToTelemetry(droneState, connected) {
  * @returns {{ telemetry, connected, droneState, events, stats, syncLatencyMs, droneStateHz }}
  */
 export default function useDroneTelemetry(wsUrl) {
-  const { connected, droneState, events, stats, syncLatencyMs, droneStateHz } = useBackendWS(wsUrl);
+  const { connected, droneState, events, stats, syncLatencyMs, droneStateHz, wsIngestTail } =
+    useBackendWS(wsUrl);
 
   const telemetry = useMemo(
     () => mapDroneStateToTelemetry(droneState, connected),
@@ -167,7 +175,8 @@ export default function useDroneTelemetry(wsUrl) {
       stats,
       syncLatencyMs,
       droneStateHz,
+      wsIngestTail,
     }),
-    [telemetry, connected, droneState, events, stats, syncLatencyMs, droneStateHz]
+    [telemetry, connected, droneState, events, stats, syncLatencyMs, droneStateHz, wsIngestTail]
   );
 }

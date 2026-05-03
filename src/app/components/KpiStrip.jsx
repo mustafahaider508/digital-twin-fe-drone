@@ -2,14 +2,22 @@
 
 import React from "react";
 
+function fmtTelemetryValue(v, { connected, empty = "—" }) {
+  if (!connected) return empty;
+  if (v == null) return empty;
+  if (typeof v === "number" && Number.isFinite(v)) return `${v}`;
+  return empty;
+}
+
 export default function KpiStrip({ telemetry, syncLatencyMs = null, droneStateHz = 0, wsConnected = false }) {
+  const batt = telemetry?.battery;
   const battColor =
-    telemetry.battery > 50 ? "#34d399" : telemetry.battery > 20 ? "#fbbf24" : "#f87171";
+    batt == null || !wsConnected ? "#64748b" : batt > 50 ? "#34d399" : batt > 20 ? "#fbbf24" : "#f87171";
 
   const items = [
     {
       label: "ALT",
-      value: `${telemetry.altitude}`,
+      value: fmtTelemetryValue(telemetry.altitude, { connected: wsConnected }),
       unit: "m",
       color: "#38bdf8",
       testId: "kpi-alt-value",
@@ -21,7 +29,7 @@ export default function KpiStrip({ telemetry, syncLatencyMs = null, droneStateHz
     },
     {
       label: "SPD",
-      value: `${telemetry.speed}`,
+      value: fmtTelemetryValue(telemetry.speed, { connected: wsConnected }),
       unit: "km/h",
       color: "#818cf8",
       testId: "kpi-spd-value",
@@ -33,7 +41,7 @@ export default function KpiStrip({ telemetry, syncLatencyMs = null, droneStateHz
     },
     {
       label: "BAT",
-      value: `${telemetry.battery}`,
+      value: fmtTelemetryValue(telemetry.battery, { connected: wsConnected }),
       unit: "%",
       color: battColor,
       testId: "kpi-bat-value",
@@ -45,7 +53,7 @@ export default function KpiStrip({ telemetry, syncLatencyMs = null, droneStateHz
     },
     {
       label: "DIST",
-      value: `${telemetry.distToGcs}`,
+      value: fmtTelemetryValue(telemetry.distToGcs, { connected: wsConnected }),
       unit: "m",
       color: "#94a3b8",
       testId: "kpi-dist-value",
